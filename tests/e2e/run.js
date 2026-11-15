@@ -80,7 +80,7 @@ const eventCount = async (uid) => Number((await pool.query("select count(*) from
   check(await num(phone) === 495 && await num(desk) === 495, "both show 495", `${await num(phone)} / ${await num(desk)}`);
 
   console.log("\n# 5. Undo");
-  await desk.click('.counter-foot2 button:has-text("Скасувати")');
+  await desk.click('.counter-undo button:has-text("Скасувати")');
   check((await desk.textContent('.counter-confirm')).includes('→'), "undo shows the resulting total first", await desk.textContent('.counter-confirm'));
   await desk.click('.counter-confirm button:has-text("Так, скасувати")');
   await settle(desk, 3000); await sync(phone);

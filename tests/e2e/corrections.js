@@ -27,33 +27,52 @@ const sumEvents = async () => Number((await pool.query("select coalesce(sum(delt
   }
   const num = (p) => p.textContent(".counter-num .big").then((s) => Number(s.replace(/\D/g, "")));
   const sync = async (p) => { await p.evaluate(() => window.dispatchEvent(new Event("focus"))); await p.waitForTimeout(1500); };
-  const fix = async (p, v) => { await p.click('.counter-foot2 button:has-text("Виправити")'); await p.fill("#cnt", String(v)); };
-  const undo = async (p) => { await p.click('.counter-foot2 button:has-text("Скасувати")'); await p.click('.counter-confirm button:has-text("Так, скасувати")'); };
+  const menu = async (p) => { if (!(await p.$(".hist"))) { await p.click(".counter-more"); await p.waitForTimeout(150); } };
+  const closeMenu = async (p) => { if (await p.$(".hist")) await p.click('.hist-top button:has-text("Готово")'); };
+  // Correction lives in the ⋯ menu: Виправити → number → Далі → Так, змінити.
+  const fix = async (p, v) => { await menu(p); await p.click('.hist-total button:has-text("Виправити")'); await p.fill("#fixv", String(v)); };
+  const fixSubmit = async (p) => { await p.click('.hist-total button:has-text("Далі")'); await p.click('.hist-confirm button:has-text("Так, змінити")'); };
+  // Undo the newest action from the menu's history list.
+  const undo = async (p) => { await menu(p); await p.click('.hist-list li:first-child button:has-text("Скасувати")'); await p.click('.hist-list .hist-confirm button:has-text("Так, скасувати")'); await closeMenu(p); };
   const signIn = async (p) => {
     await p.evaluate((u) => localStorage.setItem("sb-himkikciqlogffqflaxc-auth-token", JSON.stringify({ access_token: "t", user: u })), A);
     await p.reload({ waitUntil: "networkidle" }); await p.waitForTimeout(2500);
   };
 
-  console.log("# guest: previews, correction, undo");
+  console.log("# card layout");
   const phone = await device("phone");
+  const cardBtns = await phone.$$eval(".counter button", (bs) => bs.map((b) => b.getAttribute("aria-label") || b.textContent.trim()));
+  check(JSON.stringify(cardBtns.filter((t) => !/Ціль|Увійти/.test(t))) === JSON.stringify(["Історія та коригування", "+21", "+108", "Інше…"]), "card: only +21 / +108 / Інше… and ⋯", JSON.stringify(cardBtns));
+  await phone.click('.counter-btns button:has-text("+21")');
+  check((await phone.textContent(".counter-undo")).includes("Додано +21"), "undo offered right after adding");
+  await phone.click('.counter-undo button:has-text("Скасувати")');
+  check(await num(phone) === 21, "undo asks first (still 21)");
+  await phone.click('.counter-confirm button:has-text("Так, скасувати")');
+  check(await num(phone) === 0 && !(await phone.$(".counter-undo")), "undone, offer gone");
+
+  console.log("# guest: previews, correction, undo");
   await phone.click('.counter-btns button:has-text("Інше…")'); await phone.fill("#cnt", "345");
   check((await phone.textContent(".counter-preview")) === "0 + 345 = 345", "custom add previews the result", await phone.textContent(".counter-preview"));
   await phone.click('.counter-form button[type="submit"]');
   check(await num(phone) === 345, "added 345");
   await fix(phone, 300);
-  check((await phone.textContent(".counter-preview")).replace(/\s/g, " ") === "345 → 300 (−45)", "correction previews old → new (difference)", await phone.textContent(".counter-preview"));
-  check(await phone.isDisabled('.counter-form button[type="submit"]') === false, "save enabled");
-  await phone.fill("#cnt", "345");
-  check(await phone.isDisabled('.counter-form button[type="submit"]'), "no-op correction can't be saved");
-  await phone.fill("#cnt", "-5");
-  check((await phone.textContent(".counter-preview")).includes("→ 5"), "minus sign ignored: totals can't be negative");
-  await phone.fill("#cnt", "300"); await phone.click('.counter-form button[type="submit"]');
-  check(await num(phone) === 300, "corrected to 300");
-  check((await phone.textContent(".counter-foot2")).includes("Виправлено: 345 → 300"), "says what changed");
-  await phone.click('.counter-foot2 button:has-text("Скасувати")');
-  check((await phone.textContent(".counter-confirm")).replace(/\s/g, " ").includes("Скасувати виправлення −45? 300 → 345"), "undo of a correction previews result", await phone.textContent(".counter-confirm"));
-  await phone.click('.counter-confirm button:has-text("Ні")');
+  check((await phone.textContent(".hist .counter-preview")).replace(/\s/g, " ") === "345 → 300 (−45)", "correction previews old → new (difference)", await phone.textContent(".hist .counter-preview"));
+  check(await phone.isDisabled('.hist-total button:has-text("Далі")') === false, "Далі enabled");
+  await phone.fill("#fixv", "345");
+  check(await phone.isDisabled('.hist-total button:has-text("Далі")'), "no-op correction can't continue");
+  await phone.fill("#fixv", "-5");
+  check((await phone.textContent(".hist .counter-preview")).includes("→ 5"), "minus sign ignored: totals can't be negative");
+  await phone.fill("#fixv", "300");
+  await phone.click('.hist-total button:has-text("Далі")');
+  check(await num(phone) === 345 && (await phone.textContent(".hist-confirm")).replace(/\s/g, " ").includes("345 → 300 (−45)?"), "correction waits for confirmation", await phone.textContent(".hist-confirm"));
+  await phone.click('.hist-confirm button:has-text("Так, змінити")');
+  check(await num(phone) === 300, "corrected to 300 after confirming");
+  check((await phone.textContent(".hist-total")).includes("Виправлено: 345 → 300"), "says what changed");
+  await phone.click('.hist-list li:first-child button:has-text("Скасувати")');
+  check((await phone.textContent(".hist-list .hist-confirm")).replace(/\s/g, " ").includes("Скасувати виправлення −45? 300 → 345"), "undo of a correction previews result", await phone.textContent(".hist-list .hist-confirm"));
+  await phone.click('.hist-list .hist-confirm button:has-text("Ні")');
   check(await num(phone) === 300, "'Ні' changes nothing");
+  await closeMenu(phone);
 
   console.log("# sign in: guest progress imported, guest actions undone as corrections");
   await signIn(phone);
@@ -70,21 +89,22 @@ const sumEvents = async () => Number((await pool.query("select coalesce(sum(delt
   check(await num(desk) === 345, "desktop sees 345");
   await desk.ctx.setOffline(true);
   await desk.click('.counter-btns button:has-text("+108")'); // desktop offline: 453 locally
-  await fix(phone, 300); await phone.click('.counter-form button[type="submit"]'); await phone.waitForTimeout(2500);
+  await fix(phone, 300); await fixSubmit(phone); await closeMenu(phone); await phone.waitForTimeout(2500);
   await desk.ctx.setOffline(false); await desk.evaluate(() => window.dispatchEvent(new Event("online"))); await desk.waitForTimeout(3000);
   await sync(phone);
   check(await total() === 408 && await num(phone) === 408 && await num(desk) === 408, "both changes kept: 345 − 45 + 108 = 408", `${await total()} / ${await num(phone)} / ${await num(desk)}`);
   const audit = (await pool.query("select delta, client_total_before b, client_total_after a, note from counter_events where user_id=$1 and kind='adjust' order by server_seq desc limit 1", [A.id])).rows[0];
   check(Number(audit.delta) === -45 && Number(audit.b) === 345 && Number(audit.a) === 300 && audit.note === "manual correction", "audit trail: −45, seen 345 → 300", JSON.stringify(audit));
 
-  console.log("# undo after reopening the app");
+  console.log("# undo after reopening the app (from the menu)");
   await phone.reload({ waitUntil: "networkidle" }); await phone.waitForTimeout(2000);
+  check(!(await phone.$(".counter-undo")), "no undo offer on the card after reopening");
   await undo(phone); await phone.waitForTimeout(2500);
   check(await total() === 453, "undo of the correction after reload (+45 → 453)", String(await total()));
 
   console.log("# offline correction + repeated upload");
   await phone.ctx.setOffline(true);
-  await fix(phone, 400); await phone.click('.counter-form button[type="submit"]'); await phone.waitForTimeout(500);
+  await fix(phone, 400); await fixSubmit(phone); await closeMenu(phone); await phone.waitForTimeout(500);
   check(await num(phone) === 400 && await total() === 453, "offline: shown 400, server unchanged");
   const pending = await phone.evaluate(() => { const a = JSON.parse(localStorage.getItem("ngondro:v1:acct")); return a.outbox[a.owner]; });
   await phone.ctx.setOffline(false); await phone.evaluate(() => window.dispatchEvent(new Event("online"))); await phone.waitForTimeout(3000);
@@ -94,8 +114,8 @@ const sumEvents = async () => Number((await pool.query("select coalesce(sum(delt
 
   console.log("# never negative");
   await desk.ctx.setOffline(true);
-  await fix(desk, 0); await desk.click('.counter-form button[type="submit"]'); // desk saw 400 → −400
-  await fix(phone, 100); await phone.click('.counter-form button[type="submit"]'); await phone.waitForTimeout(2500); // −300 first
+  await fix(desk, 0); await fixSubmit(desk); await closeMenu(desk); // desk saw 400 → −400
+  await fix(phone, 100); await fixSubmit(phone); await closeMenu(phone); await phone.waitForTimeout(2500); // −300 first
   await desk.ctx.setOffline(false); await desk.evaluate(() => window.dispatchEvent(new Event("online"))); await desk.waitForTimeout(3000);
   await sync(phone);
   check(await total() === 0 && await num(phone) === 0 && await num(desk) === 0, "two reductions totalling −700 on 400 stop at 0", `${await total()}`);
