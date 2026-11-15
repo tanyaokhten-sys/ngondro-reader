@@ -52,6 +52,11 @@ css = replace_once(
     '.home-main{flex:1;min-height:0;display:flex;flex-direction:column;gap:22px;overflow-x:hidden;'
     'overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}.home-main>*{flex-shrink:0}',
     'home scroll')
+css = replace_once(
+    css,
+    '.themes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}',
+    '.themes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}',
+    'two themes')
 css += (
     '.counter-sync{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;'
     'column-gap:12px;font-size:13px;color:var(--muted);border-top:1px solid var(--line);margin-top:2px}'
@@ -80,6 +85,30 @@ js = replace_once(
     'try{localStorage.setItem(Hu+p,JSON.stringify(y))}catch{}'
     'if(p==="counters")try{__ngOnCountersChange(__prev,y)}catch(e){console.warn(e)}}',
     'storage setter')
+
+# Reading settings: only two line spacings (Щільний, Просторий) and two themes
+# (Світла, Темна). Saved "Звичайний"/"Тепла" choices move to the nearest
+# remaining option once, before the first render.
+js = replace_once(
+    js,
+    'Vf=[{id:"compact",label:"Щільний"},{id:"normal",label:"Звичайний"},{id:"relaxed",label:"Просторий"}]',
+    'Vf=[{id:"compact",label:"Щільний"},{id:"relaxed",label:"Просторий"}]',
+    'line spacing options')
+js = replace_once(
+    js,
+    '{id:"warm",label:"Тепла",bg:"#eadbc0",ink:"#3a2e22"},',
+    '',
+    'warm theme option')
+js = replace_once(js, 'Cf={fontSize:19,lineHeight:"normal"', 'Cf={fontSize:19,lineHeight:"compact"', 'default line spacing')
+settings_boot = 'try{const p=JSON.parse(localStorage.getItem("ngondro:v1:settings")||"{}");p.theme&&(document.documentElement.dataset.theme=p.theme)}catch{}'
+js = replace_once(
+    js,
+    settings_boot,
+    'try{const k="ngondro:v1:settings",s=JSON.parse(localStorage.getItem(k)||"{}");let ch=0;'
+    'if(!s.lineHeight||s.lineHeight==="normal"){s.lineHeight="compact";ch=1}'
+    'if(s.theme==="warm"){s.theme="light";ch=1}'
+    'ch&&localStorage.setItem(k,JSON.stringify(s))}catch{}' + settings_boot,
+    'settings migration')
 
 boot = 'hf.createRoot(document.getElementById("root"))'
 js = replace_once(js, boot, 'try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist().catch(()=>{})}catch{}' + boot, 'boot')
