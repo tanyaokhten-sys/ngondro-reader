@@ -21,9 +21,9 @@ API URL: https://himkikciqlogffqflaxc.supabase.co
 - Email/password provider: OFF (Google only for now). Re-enable together with SMTP when
   adding email sign-in.
 
-## Still to do (needs the owner)
-- Google provider (Authentication → Sign In / Providers → Google) with a Google Cloud
-  OAuth client. Redirect URI: https://himkikciqlogffqflaxc.supabase.co/auth/v1/callback
+- Google provider: ON. Google Cloud project `ngondro-reader-514818`, Web application client
+  `936641404054-d29i8ejidk8md6o689bne5ce3prbesi0` with redirect URI
+  https://himkikciqlogffqflaxc.supabase.co/auth/v1/callback (secret stored only in Supabase).
 
 ## Later: email sign-in
 - Custom SMTP (Authentication → Emails → SMTP) is required before the email can show the
