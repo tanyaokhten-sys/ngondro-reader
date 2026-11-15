@@ -1,38 +1,13 @@
 const { chromium } = require("playwright");
-const { Pool } = require("pg");
 const path = require("path");
 
 const URL = "http://localhost:8771/";
-const pool = new Pool({ host: process.env.PGHOST || "/var/lib/postgresql/ngtest", port: +(process.env.PGPORT || 5433), user: "postgres", database: "e2e" });
+const { db, pool } = require("./db");
 const A = { id: "aaaaaaaa-0000-0000-0000-000000000001", email: "anna@example.com" };
 const B = { id: "bbbbbbbb-0000-0000-0000-000000000002", email: "bohdan@example.com" };
 let failures = 0;
 const check = (cond, label, extra = "") => { console.log(`${cond ? "ok  " : "FAIL"} ${label}${extra ? "  " + extra : ""}`); if (!cond) failures++; };
 
-async function db(op, uid, table, a, b) {
-  const c = await pool.connect();
-  try {
-    await c.query("begin");
-    await c.query(uid ? "set local role authenticated" : "set local role anon");
-    if (uid) await c.query("select set_config('request.jwt.claim.sub', $1, true)", [uid]);
-    let res;
-    if (op === "upsert" && table === "counter_events") {
-      await c.query(
-        `insert into public.counter_events (id, practice_id, kind, delta, target, undoes, device_id, client_at)
-         select * from jsonb_to_recordset($1::jsonb) as x(id uuid, practice_id text, kind text, delta bigint, target bigint, undoes uuid, device_id text, client_at timestamptz)
-         on conflict (id) do nothing`, [JSON.stringify(a)]);
-      res = { error: null };
-    } else if (op === "select" && table === "counter_totals") {
-      const r = await c.query("select practice_id, total, target, target_at from public.counter_totals");
-      res = { data: r.rows.map((x) => ({ ...x, total: Number(x.total), target: Number(x.target) })), error: null };
-    } else throw new Error("unsupported " + op + " " + table);
-    await c.query("commit");
-    return res;
-  } catch (e) {
-    await c.query("rollback").catch(() => {});
-    return { data: null, error: { code: e.code, message: e.message } };
-  } finally { c.release(); }
-}
 const serverTotal = async (uid, practice = "refuge") =>
   Number((await pool.query("select total from counter_totals where user_id=$1 and practice_id=$2", [uid, practice])).rows[0]?.total ?? 0);
 const eventCount = async (uid) => Number((await pool.query("select count(*) from counter_events where user_id=$1", [uid])).rows[0].count);

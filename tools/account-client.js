@@ -304,6 +304,8 @@ async function __ngSignOut() {
     ? `Ще не синхронізовано: ${n} (немає з’єднання). Вони залишаться на цьому пристрої і синхронізуються, коли ви знову увійдете.\n\nВийти?`
     : "Вийти з акаунта на цьому пристрої? Ваші числа збережені в акаунті.";
   if (!confirm(msg)) return;
+  // Stop reminders on this device first (needs the session to forget it on the server).
+  try { if (typeof __ngPushUnsubscribe === "function") await __ngPushUnsubscribe(); } catch {}
   try { if (sb) await sb.auth.signOut({ scope: "local" }); } catch {}
   __ngAcctUpdate((x) => { x.owner = null; x.needLogin = false; });
   __ngCountersWrite({}); // the numbers live in the account; this device is a guest again

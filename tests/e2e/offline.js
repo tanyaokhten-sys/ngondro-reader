@@ -1,19 +1,6 @@
 const { chromium } = require("playwright");
-const { Pool } = require("pg");
-const pool = new Pool({ host: process.env.PGHOST || "/var/lib/postgresql/ngtest", port: +(process.env.PGPORT || 5433), user: "postgres", database: "e2e" });
+const { db, pool } = require("./db");
 const U = { id: "aaaaaaaa-0000-0000-0000-000000000001", email: "anna@example.com" };
-async function db(op, uid, table, a) {
-  const c = await pool.connect();
-  try {
-    await c.query("begin"); await c.query("set local role authenticated");
-    await c.query("select set_config('request.jwt.claim.sub', $1, true)", [uid]);
-    let res;
-    if (op === "upsert") { await c.query(`insert into public.counter_events (id, practice_id, kind, delta, target, undoes, device_id, client_at)
-      select * from jsonb_to_recordset($1::jsonb) as x(id uuid, practice_id text, kind text, delta bigint, target bigint, undoes uuid, device_id text, client_at timestamptz) on conflict (id) do nothing`, [JSON.stringify(a)]); res = { error: null }; }
-    else { const r = await c.query("select practice_id, total, target, target_at from public.counter_totals"); res = { data: r.rows.map(x => ({ ...x, total: +x.total, target: +x.target })), error: null }; }
-    await c.query("commit"); return res;
-  } catch (e) { await c.query("rollback"); return { error: { code: e.code, message: e.message } }; } finally { c.release(); }
-}
 const total = async () => +((await pool.query("select total from counter_totals where user_id=$1 and practice_id='refuge'", [U.id])).rows[0]?.total ?? 0);
 (async () => {
   const b = await chromium.launch(); const errs = [];

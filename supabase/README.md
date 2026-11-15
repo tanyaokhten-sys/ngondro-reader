@@ -29,3 +29,23 @@ API URL: https://himkikciqlogffqflaxc.supabase.co
 - Custom SMTP (Authentication → Emails → SMTP) is required before the email can show the
   6-digit code (template changes are blocked on the default sender) and to lift the
   2 emails/hour limit.
+
+## Practice reminders (Web Push) — set up 2026-11-16
+- Migrations `20261116000000_reminders.sql` (tables, RLS, `register_push_subscription`,
+  `claim_due_reminders`) and `20261116000001_reminders_cron.sql` (pg_cron + pg_net jobs),
+  applied via the Management API and recorded in the migration history.
+- Edge Function `reminders` (`functions/reminders/index.ts`), deployed with
+  `verify_jwt = false`; it checks the cron secret (`dispatch`) or the user's token (`test`).
+  Redeploy: Management API `POST /v1/projects/<ref>/functions/deploy?slug=reminders`
+  (or `supabase functions deploy reminders --no-verify-jwt`).
+- Edge Function secrets: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`
+  (`https://ngondro-reader.netlify.app`), `CRON_SECRET`. The VAPID public key is also in
+  `tools/reminders-client.js`.
+- Vault secret `reminders_cron_secret` = `CRON_SECRET` (read by the cron job).
+- Cron: `ngondro-reminders` every minute; `ngondro-reminders-cleanup` daily.
+- Rotating the cron secret: set a new `CRON_SECRET` function secret and
+  `select vault.update_secret((select id from vault.secrets where name = 'reminders_cron_secret'), '<new>');`
+- Rotating VAPID keys invalidates every device subscription: devices re-subscribe when the
+  user next opens the app (`__ngPushMaintain`) — update the key in both places.
+- Tests: `tests/reminders_test.sql` (time zones, DST, weekdays, duplicates, privacy) and
+  `tests/e2e/reminders.js` (settings UI).
