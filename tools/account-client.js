@@ -129,21 +129,6 @@ function __ngOnCountersChange(prev, next) {
   __ngSyncSoon();
 }
 
-// Restoring a backup while signed in: the increase becomes 'import' events.
-function __ngRestoreIntoAccount(cur, merged) {
-  __ngAcctUpdate((a) => {
-    const uid = a.owner;
-    if (!uid) return;
-    const evs = [];
-    for (const id in merged) {
-      const inc = (merged[id].total || 0) - ((cur[id] && cur[id].total) || 0);
-      if (inc > 0) evs.push(__ngEvent(a, id, "import", { delta: inc }));
-    }
-    a.outbox = a.outbox || {};
-    a.outbox[uid] = [...__ngPending(a, uid), ...evs];
-  });
-}
-
 // ---------- sync ----------
 let __ngBusy = null, __ngAgain = false, __ngTimer = 0;
 const __NG_DROP = new Set(["23505", "23514", "23503", "22P02", "22003", "22007", "22008"]);

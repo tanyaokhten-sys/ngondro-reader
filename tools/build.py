@@ -7,7 +7,6 @@ compiled files live in tools/original/; this script applies every change on
 top of them (so patches never stack on already-patched output):
 
   * home screen scrolls on small phones (CSS)
-  * backup / restore row under the counter      (tools/backup-client.js)
   * Google sign-in + cross-device sync + migration (tools/account-client.js)
   * Supabase client loaded from /vendor (works offline via the service worker)
 
@@ -54,18 +53,14 @@ css = replace_once(
     'overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}.home-main>*{flex-shrink:0}',
     'home scroll')
 css += (
-    '.counter-backup{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;'
-    'column-gap:12px;font-size:13px;color:var(--muted);border-top:1px solid var(--line);margin-top:2px}'
-    '.counter-backup .warn,.counter-sync .warn{color:var(--accent-ink);font-weight:500}'
-    '.counter-backup-btns{display:flex;gap:16px;margin-left:auto}'
-    '.counter-backup .linklike,.counter-sync .linklike{font-size:13px}'
     '.counter-sync{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;'
-    'column-gap:12px;font-size:13px;color:var(--muted);margin-top:-8px}'
+    'column-gap:12px;font-size:13px;color:var(--muted);border-top:1px solid var(--line);margin-top:2px}'
     '.counter-sync span{min-width:0;overflow-wrap:anywhere}'
-    '.counter-sync .linklike{margin-left:auto}')
+    '.counter-sync .warn{color:var(--accent-ink);font-weight:500}'
+    '.counter-sync .linklike{font-size:13px;margin-left:auto}')
 
 # --- JS --------------------------------------------------------------------
-clients = read(os.path.join(ROOT, 'tools/backup-client.js')) + '\n' + read(os.path.join(ROOT, 'tools/account-client.js'))
+clients = read(os.path.join(ROOT, 'tools/account-client.js'))
 anchor = 'function Kf({id:p}){'
 js = replace_once(js, anchor, clients + '\n' + anchor, 'counter component')
 
@@ -73,7 +68,7 @@ js = replace_once(
     js,
     ':o.jsx("span",{children:z==="target"?"Нова ціль для цієї практики":"Додайте кількість після сесії"})})]})}',
     ':o.jsx("span",{children:z==="target"?"Нова ціль для цієї практики":"Додайте кількість після сесії"})}),'
-    'o.jsx(__NgBackupRow,{total:C.total}),o.jsx(__NgAccountRow,{})]})}',
+    'o.jsx(__NgAccountRow,{})]})}',
     'counter rows')
 
 # Every change the counter card saves goes through this setter: turn it into events.
