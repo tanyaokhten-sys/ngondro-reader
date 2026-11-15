@@ -1,6 +1,8 @@
 -- Minimal stand-in for Supabase's auth schema and roles, for local tests only.
-create role anon nologin;
-create role authenticated nologin;
+do $$ begin
+  if not exists (select 1 from pg_roles where rolname = 'anon') then create role anon nologin; end if;
+  if not exists (select 1 from pg_roles where rolname = 'authenticated') then create role authenticated nologin; end if;
+end $$;
 create schema auth;
 grant usage on schema auth, public to anon, authenticated;
 create table auth.users (id uuid primary key);

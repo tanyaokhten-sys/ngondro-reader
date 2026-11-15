@@ -51,9 +51,13 @@ select pg_temp.expect((select total from counter_totals where practice_id='bodhi
 
 -- Bad values
 select pg_temp.expect_error($q$insert into counter_events (id, practice_id, kind, delta, device_id, client_at) values (gen_random_uuid(), 'refuge', 'add', -5, 'phone-aaaa', now())$q$, 'negative add');
-select pg_temp.expect_error($q$insert into counter_events (id, practice_id, kind, delta, device_id, client_at) values (gen_random_uuid(), 'refuge', 'add', 5000000, 'phone-aaaa', now())$q$, 'huge add');
+select pg_temp.expect_error($q$insert into counter_events (id, practice_id, kind, delta, device_id, client_at) values (gen_random_uuid(), 'refuge', 'add', 500000000, 'phone-aaaa', now())$q$, 'absurdly large add');
 select pg_temp.expect_error($q$insert into counter_events (id, practice_id, kind, delta, device_id, client_at) values (gen_random_uuid(), 'Bad Id!', 'add', 1, 'phone-aaaa', now())$q$, 'bad practice id');
-select pg_temp.expect_error($q$insert into counter_events (id, practice_id, kind, delta, device_id, client_at) values (gen_random_uuid(), 'refuge', 'add', 1, 'phone-aaaa', now() + interval '3 days')$q$, 'time far in future');
+-- Large custom entries are accepted; a wrong device clock is corrected, not refused
+insert into counter_events (id, practice_id, kind, delta, device_id, client_at) values
+  ('30000000-0000-0000-0000-000000000001', 'mandala', 'add', 2000000, 'phone-aaaa', now() + interval '3 days');
+select pg_temp.expect((select client_at <= now() + interval '10 minutes' from counter_events where id='30000000-0000-0000-0000-000000000001'), 'future device time clamped');
+select pg_temp.expect((select total from counter_totals where practice_id='mandala') = 2000000, 'large custom entry accepted');
 
 -- Users can't touch totals or rewrite history
 select pg_temp.expect_error($q$update counter_totals set total = 999999$q$, 'write totals directly');
