@@ -8,6 +8,7 @@ top of them (so patches never stack on already-patched output):
 
   * home screen scrolls on small phones (CSS)
   * Google sign-in + cross-device sync + migration (tools/account-client.js)
+  * counter card with preview, correction and undo     (tools/counter-client.js)
   * Supabase client loaded from /vendor (works offline via the service worker)
 
 Patched JS/CSS get content-hashed names, and index.html plus the service
@@ -62,29 +63,25 @@ css += (
     'column-gap:12px;font-size:13px;color:var(--muted);border-top:1px solid var(--line);margin-top:2px}'
     '.counter-sync span{min-width:0;overflow-wrap:anywhere}'
     '.counter-sync .warn{color:var(--accent-ink);font-weight:500}'
-    '.counter-sync .linklike{font-size:13px;margin-left:auto}')
+    '.counter-sync .linklike{font-size:13px;margin-left:auto}'
+    '.counter-preview{font-size:14px;color:var(--muted);margin-top:-4px;font-variant-numeric:tabular-nums}'
+    '.counter-preview b,.counter-confirm b{color:var(--ink);font-weight:600}'
+    '.counter-confirm{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;column-gap:16px;font-size:15px;min-height:46px}'
+    '.counter-foot2{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;column-gap:12px;font-size:13px;color:var(--muted);min-height:24px}'
+    '.counter-links{display:flex;gap:18px;margin-left:auto}'
+    '.counter-links .linklike{font-size:13px}'
+    '.counter-form button:disabled{opacity:.45}')
 
 
 # --- JS --------------------------------------------------------------------
-clients = read(os.path.join(ROOT, 'tools/account-client.js'))
-anchor = 'function Kf({id:p}){'
-js = replace_once(js, anchor, clients + '\n' + anchor, 'counter component')
+clients = read(os.path.join(ROOT, 'tools/account-client.js')) + '\n' + read(os.path.join(ROOT, 'tools/counter-client.js'))
 
-js = replace_once(
-    js,
-    ':o.jsx("span",{children:z==="target"?"Нова ціль для цієї практики":"Додайте кількість після сесії"})})]})}',
-    ':o.jsx("span",{children:z==="target"?"Нова ціль для цієї практики":"Додайте кількість після сесії"})}),'
-    'o.jsx(__NgAccountRow,{})]})}',
-    'counter rows')
-
-# Every change the counter card saves goes through this setter: turn it into events.
-js = replace_once(
-    js,
-    'function Ef(p,y){try{localStorage.setItem(Hu+p,JSON.stringify(y))}catch{}}',
-    'function Ef(p,y){let __prev;if(p==="counters")try{__prev=JSON.parse(localStorage.getItem(Hu+p)||"{}")}catch{}'
-    'try{localStorage.setItem(Hu+p,JSON.stringify(y))}catch{}'
-    'if(p==="counters")try{__ngOnCountersChange(__prev,y)}catch(e){console.warn(e)}}',
-    'storage setter')
+# Replace the compiled counter card (Kf) with tools/counter-client.js, which
+# records each action (add / correction / undo / goal) explicitly.
+kf_start = js.index('function Kf({id:p}){')
+kf_end = js.index('const Yf=', kf_start)
+assert js.count('function Kf({id:p}){') == 1
+js = js[:kf_start] + clients + '\nfunction Kf({id:p}){return o.jsx(__NgCounter,{id:p})}' + js[kf_end:]
 
 # Reading settings: only two line spacings (Щільний, Просторий) and two themes
 # (Світла, Темна). Saved "Звичайний"/"Тепла" choices move to the nearest

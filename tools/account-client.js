@@ -9,7 +9,8 @@
 // * Signed out ("guest"): the counter works exactly as before, on this device
 //   only. A note warns that it can be lost.
 // * Signed in: every change the counter card makes (+21, +108, Інше…,
-//   Скасувати, goal) becomes an event with an id made on this device. Events
+//   Скасувати, Виправити, goal) becomes an event with an id made on this device
+//   (tools/counter-client.js). Events
 //   wait in an outbox in localStorage and are uploaded with
 //   "insert … on conflict (id) do nothing", so retries never double count and
 //   devices never overwrite each other. The number shown is
@@ -22,8 +23,7 @@
 // All account state lives in ONE localStorage key (Hu+"acct") so that a
 // migration (owner + import events) is written in a single setItem:
 //   { owner: uid|null, device, emails:{uid:email}, outbox:{uid:[ev]},
-//     server:{uid:{practice:{total,target,target_at}}}, lastAdds:{uid:{practice:[{id,delta}]}},
-//     okAt, err, needLogin }
+//     server:{uid:{practice:{total,target,target_at}}}, //     okAt, err, needLogin }
 
 const __NG_SB_URL = "https://himkikciqlogffqflaxc.supabase.co";
 const __NG_SB_KEY = "sb_publishable_h9UICSo9TmatMBJJOvX_iw_E894KFUH";
@@ -69,9 +69,11 @@ function __ngDevice(a) {
   return a.device;
 }
 function __ngEvent(a, practice, kind, fields) {
+  // Every event has the same keys so a batch upload has uniform columns.
   return {
     id: __ngUuid(), practice_id: practice, kind,
     delta: fields.delta || 0, target: fields.target ?? null, undoes: fields.undoes ?? null,
+    client_total_before: fields.before ?? null, client_total_after: fields.after ?? null, note: fields.note ?? null,
     device_id: __ngDevice(a), client_at: new Date().toISOString(),
   };
 }
@@ -95,38 +97,6 @@ function __ngApplyDisplay(a, uid) {
     next[id] = c;
   }
   __ngCountersWrite(next);
-}
-
-// ---------- the counter card changed something (called from the setter) ----------
-function __ngOnCountersChange(prev, next) {
-  const a = __ngAcct();
-  const uid = a.owner;
-  if (!uid) return; // guest: local only, as before
-  const evs = [];
-  a.lastAdds = a.lastAdds || {};
-  const stacks = (a.lastAdds[uid] = a.lastAdds[uid] || {});
-  for (const id of new Set([...Object.keys(prev || {}), ...Object.keys(next || {})])) {
-    const p = (prev && prev[id]) || { total: 0, target: __NG_DEFAULT_TARGET };
-    const n = (next && next[id]) || { total: 0, target: __NG_DEFAULT_TARGET };
-    const d = (n.total || 0) - (p.total || 0);
-    const st = (stacks[id] = stacks[id] || []);
-    if (d > 0) {
-      const ev = __ngEvent(a, id, "add", { delta: d });
-      evs.push(ev);
-      st.push({ id: ev.id, delta: d });
-      if (st.length > 50) st.splice(0, st.length - 50);
-    } else if (d < 0) {
-      const last = st.pop();
-      if (last && last.delta === -d) evs.push(__ngEvent(a, id, "undo", { delta: d, undoes: last.id }));
-      // else: nothing to cancel on the server; the next sync shows the account's number again.
-    }
-    if (n.target !== p.target && n.target > 0) evs.push(__ngEvent(a, id, "set_target", { target: n.target }));
-  }
-  if (!evs.length) return;
-  a.outbox = a.outbox || {};
-  a.outbox[uid] = [...__ngPending(a, uid), ...evs];
-  __ngAcctSave(a);
-  __ngSyncSoon();
 }
 
 // ---------- sync ----------

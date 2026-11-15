@@ -36,3 +36,11 @@ dropped their tables/functions and cron jobs; the `reminders` Edge Function, its
 and the Vault secret were deleted. The app cancels any leftover browser push subscription
 on start. The two earlier reminder migrations stay in the folder because they are recorded
 as applied.
+
+## Counter corrections — 2026-11-17
+- `20261117000000_counter_adjustments.sql` (applied): event kind `adjust` (signed delta,
+  `client_total_before/after`, `note`), undo may cancel `add` or `adjust` and always takes
+  the original's exact amount, and every reduction is limited so a total never goes below
+  zero (`requested_delta` keeps what was asked). Existing rows unchanged.
+- Tests: `tests/adjustments_test.sql`, `tests/e2e/corrections.js`.
+- Local test chain skips the two reminder migrations (they need pg_cron and cancel out).

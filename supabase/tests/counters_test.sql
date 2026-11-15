@@ -34,8 +34,7 @@ insert into counter_events (id, practice_id, kind, delta, undoes, device_id, cli
 select pg_temp.expect_error($q$insert into counter_events (id, practice_id, kind, delta, undoes, device_id, client_at) values
   ('20000000-0000-0000-0000-000000000002', 'refuge', 'undo', -21, '10000000-0000-0000-0000-000000000002', 'desk-bbbb', now())$q$, 'second undo of the same tap');
 select pg_temp.expect((select total from counter_totals where practice_id='refuge') = 216, 'undo applied once (216)');
-select pg_temp.expect_error($q$insert into counter_events (id, practice_id, kind, delta, undoes, device_id, client_at) values
-  (gen_random_uuid(), 'refuge', 'undo', -500, '20000000-0000-0000-0000-000000000001', 'desk-bbbb', now())$q$, 'undo of a different size');
+-- (an undo's amount always comes from the event it cancels; see adjustments_test.sql)
 
 -- Goals: the most recent change wins, even if it arrives first
 insert into counter_events (id, practice_id, kind, target, device_id, client_at) values
