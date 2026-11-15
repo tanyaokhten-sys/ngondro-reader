@@ -8,8 +8,6 @@ top of them (so patches never stack on already-patched output):
 
   * home screen scrolls on small phones (CSS)
   * Google sign-in + cross-device sync + migration (tools/account-client.js)
-  * practice reminders in the "Aa" settings panel   (tools/reminders-client.js)
-  * push + notification-click handlers in the service worker (tools/sw-push.js)
   * Supabase client loaded from /vendor (works offline via the service worker)
 
 Patched JS/CSS get content-hashed names, and index.html plus the service
@@ -59,17 +57,11 @@ css += (
     'column-gap:12px;font-size:13px;color:var(--muted);border-top:1px solid var(--line);margin-top:2px}'
     '.counter-sync span{min-width:0;overflow-wrap:anywhere}'
     '.counter-sync .warn{color:var(--accent-ink);font-weight:500}'
-    '.counter-sync .linklike{font-size:13px;margin-left:auto}'
-    '.rem{gap:12px}.rem .toggle{border-top:1px solid var(--rule)}'
-    '.rem-row{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:15px}'
-    '.rem-row input[type=time]{font:inherit;font-size:17px;min-height:44px;padding:0 10px;border:1px solid var(--line);'
-    'border-radius:10px;background:var(--paper);color:var(--ink)}'
-    '.rem-days button{font-size:13px;min-height:40px;padding:0}'
-    '.rem-note{font-size:13px;line-height:1.45;color:var(--muted)}'
-    '.rem-test{align-self:flex-start;font-size:14px}')
+    '.counter-sync .linklike{font-size:13px;margin-left:auto}')
+
 
 # --- JS --------------------------------------------------------------------
-clients = read(os.path.join(ROOT, 'tools/account-client.js')) + '\n' + read(os.path.join(ROOT, 'tools/reminders-client.js'))
+clients = read(os.path.join(ROOT, 'tools/account-client.js'))
 anchor = 'function Kf({id:p}){'
 js = replace_once(js, anchor, clients + '\n' + anchor, 'counter component')
 
@@ -79,13 +71,6 @@ js = replace_once(
     ':o.jsx("span",{children:z==="target"?"Нова ціль для цієї практики":"Додайте кількість після сесії"})}),'
     'o.jsx(__NgAccountRow,{})]})}',
     'counter rows')
-
-# Reminders section at the end of the "Aa" settings panel, after the toggles.
-js = replace_once(
-    js,
-    'onChange:j=>_({collapseCommentary:j.target.checked})})]})]})]})]})}',
-    'onChange:j=>_({collapseCommentary:j.target.checked})})]})]}),o.jsx(__NgReminders,{})]})]})}',
-    'settings panel')
 
 # Every change the counter card saves goes through this setter: turn it into events.
 js = replace_once(
@@ -127,7 +112,6 @@ sw = replace_once(sw, 'assets/index-rJMPRxuM.js', js_name, 'sw js')
 sw = replace_once(sw, 'assets/index-BkesdbSv.css', css_name, 'sw css')
 old_rev = re.search(r'\{url:"index\.html",revision:"([0-9a-f]+)"\}', sw).group(1)
 sw = replace_once(sw, old_rev, hashlib.md5(idx.encode()).hexdigest(), 'sw index revision')
-sw += '\n' + read(os.path.join(ROOT, 'tools/sw-push.js'))
 sw = replace_once(sw, '{url:"registerSW.js",', f'{{url:"{VENDOR}",revision:"{vendor_rev}"}},{{url:"registerSW.js",', 'sw vendor')
 write(os.path.join(PUB, 'sw.js'), sw)
 
