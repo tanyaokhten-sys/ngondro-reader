@@ -75,6 +75,7 @@ function __ngEvent(a, practice, kind, fields) {
     delta: fields.delta || 0, target: fields.target ?? null, undoes: fields.undoes ?? null,
     client_total_before: fields.before ?? null, client_total_after: fields.after ?? null, note: fields.note ?? null,
     device_id: __ngDevice(a), client_at: new Date().toISOString(),
+    ...(fields.local || {}), // local-only details, keys start with "_", never uploaded
   };
 }
 const __ngPending = (a, uid) => (a.outbox && a.outbox[uid]) || [];
@@ -94,6 +95,8 @@ function __ngApplyDisplay(a, uid) {
     const c = { total: 0, target: __NG_DEFAULT_TARGET, log: [], ...(cur[id] || {}) };
     c.total = Math.max(0, total);
     c.target = tEv ? tEv.target : s ? s.target : c.target;
+    const wEv = mine.filter((e) => e.kind === "set_weekly_goal").pop();
+    c.weeklyGoal = wEv ? wEv.target || null : s ? s.weekly_goal : c.weeklyGoal || null;
     next[id] = c;
   }
   __ngCountersWrite(next);
@@ -104,11 +107,53 @@ let __ngBusy = null, __ngAgain = false, __ngTimer = 0;
 const __NG_DROP = new Set(["23505", "23514", "23503", "22P02", "22003", "22007", "22008"]);
 
 async function __ngFetchTotals(sb) {
-  const { data, error } = await sb.from("counter_totals").select("practice_id,total,target,target_at");
+  const { data, error } = await sb.from("counter_totals").select("practice_id,total,target,target_at,weekly_goal,weekly_goal_at");
   if (error) throw error;
   const out = {};
-  for (const r of data || []) out[r.practice_id] = { total: Number(r.total), target: Number(r.target), target_at: r.target_at };
+  for (const r of data || []) out[r.practice_id] = {
+    total: Number(r.total), target: Number(r.target), target_at: r.target_at,
+    weekly_goal: r.weekly_goal == null ? null : Number(r.weekly_goal), weekly_goal_at: r.weekly_goal_at,
+  };
   return out;
+}
+
+// ---------- weeks (Monday–Sunday, this device's timezone) ----------
+function __ngTz() { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch { return "UTC"; } }
+const __NG_TZ_ALIASES = { "Europe/Kiev": "Europe/Kyiv", "Europe/Kyiv": "Europe/Kiev", "Asia/Calcutta": "Asia/Kolkata", "Asia/Saigon": "Asia/Ho_Chi_Minh" };
+function __ngWeekStart(now = new Date()) {
+  const d = new Date(now); d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // back to Monday
+  return d;
+}
+const __ngDateKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+// This week's adds per practice, derived on the server from events (undone adds excluded).
+async function __ngFetchWeek(sb) {
+  const tz = __ngTz();
+  let { data, error } = await sb.rpc("weekly_progress", { p_tz: tz });
+  if (error && error.code === "22023" && __NG_TZ_ALIASES[tz]) ({ data, error } = await sb.rpc("weekly_progress", { p_tz: __NG_TZ_ALIASES[tz] }));
+  if (error) throw error;
+  const done = {};
+  for (const r of data || []) done[r.practice_id] = Number(r.done);
+  return { ws: __ngDateKey(__ngWeekStart()), tz, done };
+}
+
+// Weekly progress shown on the card: adds since Monday 00:00 (local), never negative.
+// Signed in: server's derived sum + pending adds this week + pending undos of this week's adds.
+// Signed out: from this device's log.
+function __ngWeekDone(id, c) {
+  const ws = __ngWeekStart().getTime();
+  const a = __ngAcct();
+  const uid = a.owner;
+  if (!uid) return (c.log || []).filter((e) => (e.k || "add") === "add" && e.at >= ws).reduce((s, e) => s + e.n, 0);
+  const w = a.week && a.week[uid];
+  let n = w && w.ws === __ngDateKey(__ngWeekStart()) ? w.done[id] || 0 : 0;
+  for (const e of __ngPending(a, uid)) {
+    if (e.practice_id !== id) continue;
+    if (e.kind === "add" && Date.parse(e.client_at) >= ws) n += e.delta;
+    if (e.kind === "undo" && e._orig_k === "add" && e._orig_at >= ws) n += e.delta;
+  }
+  return Math.max(0, n);
 }
 
 async function __ngPush(sb, rows) {
@@ -143,13 +188,15 @@ async function __ngSyncNow() {
       const { data } = await sb.auth.getSession();
       const session = data && data.session;
       if (!session || session.user.id !== uid) { __ngAcctUpdate((x) => { x.needLogin = true; }); return; }
-      const rows = __ngPending(a, uid).map((e) => ({ ...e }));
+      const rows = __ngPending(a, uid).map((e) => Object.fromEntries(Object.entries(e).filter(([k]) => k[0] !== "_")));
       let done = new Set();
       if (rows.length) {
         const r = await __ngPush(sb, rows);
         done = new Set([...r.sent, ...r.dropped]);
       }
       const totals = await __ngFetchTotals(sb);
+      let week = null;
+      try { week = await __ngFetchWeek(sb); } catch (e) { console.warn("weekly progress", e); }
       // Everything below is synchronous: taps made during the awaits above
       // are already in the outbox and are kept.
       a = __ngAcct();
@@ -158,6 +205,7 @@ async function __ngSyncNow() {
       a.outbox[uid] = __ngPending(a, uid).filter((e) => !done.has(e.id));
       a.server = a.server || {};
       a.server[uid] = totals;
+      if (week) { a.week = a.week || {}; a.week[uid] = week; }
       a.okAt = Date.now(); a.err = 0; a.needLogin = false;
       __ngAcctSave(a);
       __ngApplyDisplay(a, uid);
@@ -235,6 +283,8 @@ async function __ngOnSignedIn(session) {
     for (const id of Object.keys(cur)) {
       const t = cur[id] && cur[id].target;
       if (t && t !== __NG_DEFAULT_TARGET && !(server[id] && server[id].target_at)) evs.push(__ngEvent(a, id, "set_target", { target: t }));
+      const wg = cur[id] && cur[id].weeklyGoal;
+      if (wg && !(server[id] && server[id].weekly_goal_at)) evs.push(__ngEvent(a, id, "set_weekly_goal", { target: wg }));
     }
     // One write: owner + import events (never imported twice).
     a.owner = uid;

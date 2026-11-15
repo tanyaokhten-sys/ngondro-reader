@@ -115,6 +115,7 @@ function __ngEvent(a, practice, kind, fields) {
     delta: fields.delta || 0, target: fields.target ?? null, undoes: fields.undoes ?? null,
     client_total_before: fields.before ?? null, client_total_after: fields.after ?? null, note: fields.note ?? null,
     device_id: __ngDevice(a), client_at: new Date().toISOString(),
+    ...(fields.local || {}), // local-only details, keys start with "_", never uploaded
   };
 }
 const __ngPending = (a, uid) => (a.outbox && a.outbox[uid]) || [];
@@ -134,6 +135,8 @@ function __ngApplyDisplay(a, uid) {
     const c = { total: 0, target: __NG_DEFAULT_TARGET, log: [], ...(cur[id] || {}) };
     c.total = Math.max(0, total);
     c.target = tEv ? tEv.target : s ? s.target : c.target;
+    const wEv = mine.filter((e) => e.kind === "set_weekly_goal").pop();
+    c.weeklyGoal = wEv ? wEv.target || null : s ? s.weekly_goal : c.weeklyGoal || null;
     next[id] = c;
   }
   __ngCountersWrite(next);
@@ -144,11 +147,53 @@ let __ngBusy = null, __ngAgain = false, __ngTimer = 0;
 const __NG_DROP = new Set(["23505", "23514", "23503", "22P02", "22003", "22007", "22008"]);
 
 async function __ngFetchTotals(sb) {
-  const { data, error } = await sb.from("counter_totals").select("practice_id,total,target,target_at");
+  const { data, error } = await sb.from("counter_totals").select("practice_id,total,target,target_at,weekly_goal,weekly_goal_at");
   if (error) throw error;
   const out = {};
-  for (const r of data || []) out[r.practice_id] = { total: Number(r.total), target: Number(r.target), target_at: r.target_at };
+  for (const r of data || []) out[r.practice_id] = {
+    total: Number(r.total), target: Number(r.target), target_at: r.target_at,
+    weekly_goal: r.weekly_goal == null ? null : Number(r.weekly_goal), weekly_goal_at: r.weekly_goal_at,
+  };
   return out;
+}
+
+// ---------- weeks (Monday–Sunday, this device's timezone) ----------
+function __ngTz() { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch { return "UTC"; } }
+const __NG_TZ_ALIASES = { "Europe/Kiev": "Europe/Kyiv", "Europe/Kyiv": "Europe/Kiev", "Asia/Calcutta": "Asia/Kolkata", "Asia/Saigon": "Asia/Ho_Chi_Minh" };
+function __ngWeekStart(now = new Date()) {
+  const d = new Date(now); d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // back to Monday
+  return d;
+}
+const __ngDateKey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+// This week's adds per practice, derived on the server from events (undone adds excluded).
+async function __ngFetchWeek(sb) {
+  const tz = __ngTz();
+  let { data, error } = await sb.rpc("weekly_progress", { p_tz: tz });
+  if (error && error.code === "22023" && __NG_TZ_ALIASES[tz]) ({ data, error } = await sb.rpc("weekly_progress", { p_tz: __NG_TZ_ALIASES[tz] }));
+  if (error) throw error;
+  const done = {};
+  for (const r of data || []) done[r.practice_id] = Number(r.done);
+  return { ws: __ngDateKey(__ngWeekStart()), tz, done };
+}
+
+// Weekly progress shown on the card: adds since Monday 00:00 (local), never negative.
+// Signed in: server's derived sum + pending adds this week + pending undos of this week's adds.
+// Signed out: from this device's log.
+function __ngWeekDone(id, c) {
+  const ws = __ngWeekStart().getTime();
+  const a = __ngAcct();
+  const uid = a.owner;
+  if (!uid) return (c.log || []).filter((e) => (e.k || "add") === "add" && e.at >= ws).reduce((s, e) => s + e.n, 0);
+  const w = a.week && a.week[uid];
+  let n = w && w.ws === __ngDateKey(__ngWeekStart()) ? w.done[id] || 0 : 0;
+  for (const e of __ngPending(a, uid)) {
+    if (e.practice_id !== id) continue;
+    if (e.kind === "add" && Date.parse(e.client_at) >= ws) n += e.delta;
+    if (e.kind === "undo" && e._orig_k === "add" && e._orig_at >= ws) n += e.delta;
+  }
+  return Math.max(0, n);
 }
 
 async function __ngPush(sb, rows) {
@@ -183,13 +228,15 @@ async function __ngSyncNow() {
       const { data } = await sb.auth.getSession();
       const session = data && data.session;
       if (!session || session.user.id !== uid) { __ngAcctUpdate((x) => { x.needLogin = true; }); return; }
-      const rows = __ngPending(a, uid).map((e) => ({ ...e }));
+      const rows = __ngPending(a, uid).map((e) => Object.fromEntries(Object.entries(e).filter(([k]) => k[0] !== "_")));
       let done = new Set();
       if (rows.length) {
         const r = await __ngPush(sb, rows);
         done = new Set([...r.sent, ...r.dropped]);
       }
       const totals = await __ngFetchTotals(sb);
+      let week = null;
+      try { week = await __ngFetchWeek(sb); } catch (e) { console.warn("weekly progress", e); }
       // Everything below is synchronous: taps made during the awaits above
       // are already in the outbox and are kept.
       a = __ngAcct();
@@ -198,6 +245,7 @@ async function __ngSyncNow() {
       a.outbox[uid] = __ngPending(a, uid).filter((e) => !done.has(e.id));
       a.server = a.server || {};
       a.server[uid] = totals;
+      if (week) { a.week = a.week || {}; a.week[uid] = week; }
       a.okAt = Date.now(); a.err = 0; a.needLogin = false;
       __ngAcctSave(a);
       __ngApplyDisplay(a, uid);
@@ -275,6 +323,8 @@ async function __ngOnSignedIn(session) {
     for (const id of Object.keys(cur)) {
       const t = cur[id] && cur[id].target;
       if (t && t !== __NG_DEFAULT_TARGET && !(server[id] && server[id].target_at)) evs.push(__ngEvent(a, id, "set_target", { target: t }));
+      const wg = cur[id] && cur[id].weeklyGoal;
+      if (wg && !(server[id] && server[id].weekly_goal_at)) evs.push(__ngEvent(a, id, "set_weekly_goal", { target: wg }));
     }
     // One write: owner + import events (never imported twice).
     a.owner = uid;
@@ -456,10 +506,16 @@ function __ngCounterDo(id, act) {
     c.total = Math.max(0, c.total - last.n);
     if (uid) {
       if (last.id && last.u === uid && (last.k === "add" || last.k === "adjust" || !last.k))
-        ev = __ngEvent(a, id, "undo", { delta: -last.n, undoes: last.id });
+        ev = __ngEvent(a, id, "undo", { delta: -last.n, undoes: last.id, local: { _orig_at: last.at, _orig_k: last.k || "add" } });
       else if (last.n) // recorded before signing in: cancel it with a correction
         ev = __ngEvent(a, id, "adjust", { delta: -last.n, before, after: c.total, note: "undo of an action made before sign-in" });
     }
+  } else if (act.type === "weekly") {
+    // Optional weekly goal; 0 turns it off. Lifetime target and total are untouched.
+    const g = act.goal > 0 ? act.goal : null;
+    if ((c.weeklyGoal || null) === g) return null;
+    c.weeklyGoal = g;
+    if (uid) ev = __ngEvent(a, id, "set_weekly_goal", { target: g || 0 });
   } else if (act.type === "target") {
     if (!(act.target > 0) || act.target === c.target) return null;
     c.target = act.target;
@@ -581,6 +637,7 @@ function __NgCounter({ id }) {
         ],
       }),
       o.jsx("div", { className: "bar", "aria-hidden": "true", children: o.jsx("div", { style: { width: `${pct}%` } }) }),
+      c.weeklyGoal > 0 && o.jsx(__NgWeekLine, { id, c }),
 
       mode === "none" && o.jsxs("div", {
         className: "counter-btns counter-btns-big",
@@ -635,7 +692,7 @@ function __NgCounter({ id }) {
 function __NgHistory({ id, onClose }) {
   const [all] = Lf();
   const c = qs(all, id);
-  const [step, setStep] = X.useState("list"); // list | fix | fixConfirm
+  const [step, setStep] = X.useState("list"); // list | fix | fixConfirm | goal
   const [val, setVal] = X.useState("");
   const [ask, setAsk] = X.useState(null);      // entry id awaiting undo confirmation
   const [done, setDone] = X.useState(null);
@@ -650,6 +707,8 @@ function __NgHistory({ id, onClose }) {
     window.addEventListener("keydown", k);
     return () => window.removeEventListener("keydown", k);
   }, [onClose]);
+
+  if (step === "goal") return o.jsx(__NgWeeklyGoalPanel, { id, c, onBack: () => setStep("list"), onClose });
 
   const change = o.jsxs(o.Fragment, { children: [Ul(c.total), " → ", o.jsx("b", { children: Ul(n ?? 0) }), n !== null ? ` (${__ngSigned(n - c.total)})` : ""] });
 
@@ -705,6 +764,15 @@ function __NgHistory({ id, onClose }) {
             ],
           }),
 
+          // Weekly goal (settings in its own view)
+          o.jsxs("div", { className: "hist-row hist-goal", children: [
+            o.jsxs("span", { children: [
+              o.jsx("span", { className: "hist-label", children: "Тижнева мета" }),
+              o.jsx("span", { children: c.weeklyGoal ? `${Ul(c.weeklyGoal)} на тиждень · цього тижня ${Ul(__ngWeekDone(id, c))}` : "Не встановлено" }),
+            ] }),
+            o.jsx("button", { type: "button", className: "linklike", onClick: () => { setStep("goal"); setAsk(null); setDone(null); }, children: c.weeklyGoal ? "Змінити" : "Встановити" }),
+          ] }),
+
           // This device's recent actions
           o.jsx("div", { className: "eyebrow", children: "Останні дії на цьому пристрої" }),
           entries.length === 0 && o.jsx("p", { className: "hist-note", children: "Ще немає дій." }),
@@ -727,6 +795,69 @@ function __NgHistory({ id, onClose }) {
             }, e.id || e.at)),
           }),
           o.jsx("p", { className: "hist-note", children: "Дії з інших пристроїв тут не показані — загальне число можна виправити будь-коли." }),
+        ],
+      }),
+    ],
+  });
+}
+
+// Subtle weekly line on the card. No streaks, no judgement — just this week.
+function __NgWeekLine({ id, c }) {
+  const [, tick] = X.useState(0);
+  X.useEffect(() => {
+    const h = () => tick((n) => n + 1);
+    window.addEventListener("ngsync", h);
+    const t = setInterval(h, 60000); // a new week starts on Monday without reopening
+    return () => { window.removeEventListener("ngsync", h); clearInterval(t); };
+  }, []);
+  const done = __ngWeekDone(id, c);
+  const pct = Math.min(100, (done / c.weeklyGoal) * 100);
+  return o.jsxs("div", {
+    className: "counter-week",
+    children: [
+      o.jsxs("span", { children: ["Цей тиждень: ", Ul(done), " з ", Ul(c.weeklyGoal)] }),
+      o.jsx("div", { className: "bar bar-week", "aria-hidden": "true", children: o.jsx("div", { style: { width: `${pct}%` } }) }),
+    ],
+  });
+}
+
+// Weekly goal settings: suggested 108 / 500 / 1 000, a custom value, or off.
+function __NgWeeklyGoalPanel({ id, c, onBack, onClose }) {
+  const [custom, setCustom] = X.useState(false);
+  const [val, setVal] = X.useState("");
+  const n = __ngNum(val);
+  const g = c.weeklyGoal || null;
+  const presets = [108, 500, 1000];
+  const set = (goal) => { __ngCounterDo(id, { type: "weekly", goal }); setCustom(false); setVal(""); };
+  const validCustom = n > 0 && n <= 1000000 && n !== g;
+  return o.jsxs(o.Fragment, {
+    children: [
+      o.jsx("div", { className: "scrim", onClick: onClose }),
+      o.jsxs("div", {
+        className: "sheet hist", role: "dialog", "aria-modal": "true", "aria-label": "Тижнева мета",
+        children: [
+          o.jsx("div", { className: "grab", "aria-hidden": "true" }),
+          o.jsxs("div", { className: "hist-top", children: [
+            o.jsxs("div", { children: [o.jsx("div", { className: "eyebrow", children: "Тижнева мета" }), o.jsx("div", { className: "hist-name", children: Nr.get(id).short })] }),
+            o.jsx("button", { type: "button", className: "linklike", onClick: onBack, children: "Назад" }),
+          ] }),
+          o.jsx("p", { className: "hist-note", children: "Необов’язкова мета на тиждень — з понеділка до неділі, за часовим поясом цього пристрою. Рахуються лише додавання; загальне число не скидається." }),
+          o.jsxs("div", { className: "seg goal-seg", role: "group", "aria-label": "Тижнева мета", children: [
+            ...presets.map((p) => o.jsx("button", { type: "button", "aria-pressed": g === p && !custom, onClick: () => set(p), children: Ul(p) }, p)),
+            o.jsx("button", { type: "button", "aria-pressed": custom || (g !== null && !presets.includes(g)), onClick: () => { setCustom(true); setVal(g && !presets.includes(g) ? String(g) : ""); }, children: g && !presets.includes(g) && !custom ? Ul(g) : "Інше…" }, "custom"),
+          ] }),
+          custom && o.jsxs("form", {
+            className: "counter-form",
+            onSubmit: (e) => { e.preventDefault(); validCustom && set(n); },
+            children: [
+              o.jsx("label", { className: "sr-only", htmlFor: "wgoal", children: "Своя тижнева мета" }),
+              o.jsx("input", { id: "wgoal", inputMode: "numeric", pattern: "[0-9 ]*", autoFocus: true, value: val, onChange: (e) => setVal(e.target.value), placeholder: "Кількість на тиждень" }),
+              o.jsx("button", { type: "submit", disabled: !validCustom, children: "Зберегти" }),
+              o.jsx("button", { type: "button", onClick: () => setCustom(false), "aria-label": "Скасувати", children: "✕" }),
+            ],
+          }),
+          o.jsx("div", { className: "counter-preview", "aria-live": "polite", children: g ? `Цього тижня: ${Ul(__ngWeekDone(id, c))} з ${Ul(g)}` : "Мету не встановлено." }),
+          g && o.jsx("button", { type: "button", className: "linklike goal-off", onClick: () => set(0), children: "Вимкнути тижневу мету" }),
         ],
       }),
     ],

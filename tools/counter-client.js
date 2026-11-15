@@ -48,10 +48,16 @@ function __ngCounterDo(id, act) {
     c.total = Math.max(0, c.total - last.n);
     if (uid) {
       if (last.id && last.u === uid && (last.k === "add" || last.k === "adjust" || !last.k))
-        ev = __ngEvent(a, id, "undo", { delta: -last.n, undoes: last.id });
+        ev = __ngEvent(a, id, "undo", { delta: -last.n, undoes: last.id, local: { _orig_at: last.at, _orig_k: last.k || "add" } });
       else if (last.n) // recorded before signing in: cancel it with a correction
         ev = __ngEvent(a, id, "adjust", { delta: -last.n, before, after: c.total, note: "undo of an action made before sign-in" });
     }
+  } else if (act.type === "weekly") {
+    // Optional weekly goal; 0 turns it off. Lifetime target and total are untouched.
+    const g = act.goal > 0 ? act.goal : null;
+    if ((c.weeklyGoal || null) === g) return null;
+    c.weeklyGoal = g;
+    if (uid) ev = __ngEvent(a, id, "set_weekly_goal", { target: g || 0 });
   } else if (act.type === "target") {
     if (!(act.target > 0) || act.target === c.target) return null;
     c.target = act.target;
@@ -173,6 +179,7 @@ function __NgCounter({ id }) {
         ],
       }),
       o.jsx("div", { className: "bar", "aria-hidden": "true", children: o.jsx("div", { style: { width: `${pct}%` } }) }),
+      c.weeklyGoal > 0 && o.jsx(__NgWeekLine, { id, c }),
 
       mode === "none" && o.jsxs("div", {
         className: "counter-btns counter-btns-big",
@@ -227,7 +234,7 @@ function __NgCounter({ id }) {
 function __NgHistory({ id, onClose }) {
   const [all] = Lf();
   const c = qs(all, id);
-  const [step, setStep] = X.useState("list"); // list | fix | fixConfirm
+  const [step, setStep] = X.useState("list"); // list | fix | fixConfirm | goal
   const [val, setVal] = X.useState("");
   const [ask, setAsk] = X.useState(null);      // entry id awaiting undo confirmation
   const [done, setDone] = X.useState(null);
@@ -242,6 +249,8 @@ function __NgHistory({ id, onClose }) {
     window.addEventListener("keydown", k);
     return () => window.removeEventListener("keydown", k);
   }, [onClose]);
+
+  if (step === "goal") return o.jsx(__NgWeeklyGoalPanel, { id, c, onBack: () => setStep("list"), onClose });
 
   const change = o.jsxs(o.Fragment, { children: [Ul(c.total), " → ", o.jsx("b", { children: Ul(n ?? 0) }), n !== null ? ` (${__ngSigned(n - c.total)})` : ""] });
 
@@ -297,6 +306,15 @@ function __NgHistory({ id, onClose }) {
             ],
           }),
 
+          // Weekly goal (settings in its own view)
+          o.jsxs("div", { className: "hist-row hist-goal", children: [
+            o.jsxs("span", { children: [
+              o.jsx("span", { className: "hist-label", children: "Тижнева мета" }),
+              o.jsx("span", { children: c.weeklyGoal ? `${Ul(c.weeklyGoal)} на тиждень · цього тижня ${Ul(__ngWeekDone(id, c))}` : "Не встановлено" }),
+            ] }),
+            o.jsx("button", { type: "button", className: "linklike", onClick: () => { setStep("goal"); setAsk(null); setDone(null); }, children: c.weeklyGoal ? "Змінити" : "Встановити" }),
+          ] }),
+
           // This device's recent actions
           o.jsx("div", { className: "eyebrow", children: "Останні дії на цьому пристрої" }),
           entries.length === 0 && o.jsx("p", { className: "hist-note", children: "Ще немає дій." }),
@@ -319,6 +337,69 @@ function __NgHistory({ id, onClose }) {
             }, e.id || e.at)),
           }),
           o.jsx("p", { className: "hist-note", children: "Дії з інших пристроїв тут не показані — загальне число можна виправити будь-коли." }),
+        ],
+      }),
+    ],
+  });
+}
+
+// Subtle weekly line on the card. No streaks, no judgement — just this week.
+function __NgWeekLine({ id, c }) {
+  const [, tick] = X.useState(0);
+  X.useEffect(() => {
+    const h = () => tick((n) => n + 1);
+    window.addEventListener("ngsync", h);
+    const t = setInterval(h, 60000); // a new week starts on Monday without reopening
+    return () => { window.removeEventListener("ngsync", h); clearInterval(t); };
+  }, []);
+  const done = __ngWeekDone(id, c);
+  const pct = Math.min(100, (done / c.weeklyGoal) * 100);
+  return o.jsxs("div", {
+    className: "counter-week",
+    children: [
+      o.jsxs("span", { children: ["Цей тиждень: ", Ul(done), " з ", Ul(c.weeklyGoal)] }),
+      o.jsx("div", { className: "bar bar-week", "aria-hidden": "true", children: o.jsx("div", { style: { width: `${pct}%` } }) }),
+    ],
+  });
+}
+
+// Weekly goal settings: suggested 108 / 500 / 1 000, a custom value, or off.
+function __NgWeeklyGoalPanel({ id, c, onBack, onClose }) {
+  const [custom, setCustom] = X.useState(false);
+  const [val, setVal] = X.useState("");
+  const n = __ngNum(val);
+  const g = c.weeklyGoal || null;
+  const presets = [108, 500, 1000];
+  const set = (goal) => { __ngCounterDo(id, { type: "weekly", goal }); setCustom(false); setVal(""); };
+  const validCustom = n > 0 && n <= 1000000 && n !== g;
+  return o.jsxs(o.Fragment, {
+    children: [
+      o.jsx("div", { className: "scrim", onClick: onClose }),
+      o.jsxs("div", {
+        className: "sheet hist", role: "dialog", "aria-modal": "true", "aria-label": "Тижнева мета",
+        children: [
+          o.jsx("div", { className: "grab", "aria-hidden": "true" }),
+          o.jsxs("div", { className: "hist-top", children: [
+            o.jsxs("div", { children: [o.jsx("div", { className: "eyebrow", children: "Тижнева мета" }), o.jsx("div", { className: "hist-name", children: Nr.get(id).short })] }),
+            o.jsx("button", { type: "button", className: "linklike", onClick: onBack, children: "Назад" }),
+          ] }),
+          o.jsx("p", { className: "hist-note", children: "Необов’язкова мета на тиждень — з понеділка до неділі, за часовим поясом цього пристрою. Рахуються лише додавання; загальне число не скидається." }),
+          o.jsxs("div", { className: "seg goal-seg", role: "group", "aria-label": "Тижнева мета", children: [
+            ...presets.map((p) => o.jsx("button", { type: "button", "aria-pressed": g === p && !custom, onClick: () => set(p), children: Ul(p) }, p)),
+            o.jsx("button", { type: "button", "aria-pressed": custom || (g !== null && !presets.includes(g)), onClick: () => { setCustom(true); setVal(g && !presets.includes(g) ? String(g) : ""); }, children: g && !presets.includes(g) && !custom ? Ul(g) : "Інше…" }, "custom"),
+          ] }),
+          custom && o.jsxs("form", {
+            className: "counter-form",
+            onSubmit: (e) => { e.preventDefault(); validCustom && set(n); },
+            children: [
+              o.jsx("label", { className: "sr-only", htmlFor: "wgoal", children: "Своя тижнева мета" }),
+              o.jsx("input", { id: "wgoal", inputMode: "numeric", pattern: "[0-9 ]*", autoFocus: true, value: val, onChange: (e) => setVal(e.target.value), placeholder: "Кількість на тиждень" }),
+              o.jsx("button", { type: "submit", disabled: !validCustom, children: "Зберегти" }),
+              o.jsx("button", { type: "button", onClick: () => setCustom(false), "aria-label": "Скасувати", children: "✕" }),
+            ],
+          }),
+          o.jsx("div", { className: "counter-preview", "aria-live": "polite", children: g ? `Цього тижня: ${Ul(__ngWeekDone(id, c))} з ${Ul(g)}` : "Мету не встановлено." }),
+          g && o.jsx("button", { type: "button", className: "linklike goal-off", onClick: () => set(0), children: "Вимкнути тижневу мету" }),
         ],
       }),
     ],

@@ -44,3 +44,11 @@ as applied.
   zero (`requested_delta` keeps what was asked). Existing rows unchanged.
 - Tests: `tests/adjustments_test.sql`, `tests/e2e/corrections.js`.
 - Local test chain skips the two reminder migrations (they need pg_cron and cancel out).
+
+## Weekly goals — prepared 2026-11-18 (NOT yet applied)
+- `20261118000000_weekly_goals.sql`: event kind `set_weekly_goal` (0 = off; newest wins),
+  `counter_totals.weekly_goal`, and `weekly_progress(p_tz)` which derives this week's
+  progress from events: `add` events from Monday 00:00 in the caller's timezone that were
+  not undone. Corrections and imports change the lifetime total only.
+- Must be applied before deploying the app version that uses it.
+- Tests: `tests/weekly_test.sql`, `tests/e2e/weekly.js`.

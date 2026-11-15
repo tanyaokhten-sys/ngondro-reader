@@ -8,7 +8,7 @@ top of them (so patches never stack on already-patched output):
 
   * home screen scrolls on small phones (CSS)
   * Google sign-in + cross-device sync + migration (tools/account-client.js)
-  * counter card with preview, correction and undo     (tools/counter-client.js)
+  * counter card with preview, correction, undo and optional weekly goals (tools/counter-client.js)
   * Supabase client loaded from /vendor (works offline via the service worker)
 
 Patched JS/CSS get content-hashed names, and index.html plus the service
@@ -89,6 +89,11 @@ css += (
     '.hist-what{font-size:16px;font-variant-numeric:tabular-nums}.hist-what.adj{color:var(--accent-ink)}'
     '.hist-when{font-size:12px;color:var(--muted)}'
     '.hist-note{margin:0;font-size:13px;line-height:1.45;color:var(--muted)}'
+    '.counter-week{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--muted);margin-top:-4px}'
+    '.bar.bar-week{height:2px;background:var(--paper-3)}.bar.bar-week>div{height:2px;background:var(--muted);opacity:.6}'
+    '.hist-goal{padding:2px 0}.hist-goal>span:first-child{gap:2px;font-size:15px}'
+    '.goal-seg button{font-variant-numeric:tabular-nums}'
+    '.goal-off{align-self:flex-start}'
     '.counter-preview b,.counter-confirm b{color:var(--ink);font-weight:600}'
     '.counter-confirm{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;column-gap:16px;font-size:15px;min-height:46px}'
     '.counter-foot2{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;column-gap:12px;font-size:13px;color:var(--muted);min-height:24px}'

@@ -29,7 +29,8 @@ async function db(op, uid, table, payload, opts = {}) {
       data = { devices: r.rows[0].n, sent: r.rows[0].n, removed: 0, failed: 0 };
     } else if (op === "rpc") {
       const names = Object.keys(payload || {}).map(ident);
-      await c.query(`select public.${ident(table)}(${names.map((n, i) => `${n} => $${i + 1}`).join(", ")})`, names.map((n) => payload[n]));
+      const r = await c.query(`select * from public.${ident(table)}(${names.map((n, i) => `${n} => $${i + 1}`).join(", ")})`, names.map((n) => payload[n]));
+      data = r.rows;
     } else {
       if (!TABLES.has(table)) throw new Error("table " + table);
       if (op === "select") {
