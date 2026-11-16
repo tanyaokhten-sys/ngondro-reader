@@ -8,6 +8,7 @@ top of them (so patches never stack on already-patched output):
 
   * home screen scrolls on small phones (CSS)
   * Google sign-in + cross-device sync + migration (tools/account-client.js)
+  * link-preview tags + cover (public/og-cover.png from tools/og/cover.html)
   * reading flow (Вступні → selected practice → Завершальні) and the start button (tools/nav-client.js)
   * counter card with preview, correction, undo and optional weekly goals (tools/counter-client.js)
   * Supabase client loaded from /vendor (works offline via the service worker)
@@ -172,6 +173,30 @@ write(os.path.join(PUB, js_name), js)
 write(os.path.join(PUB, css_name), css)
 
 # --- index.html ------------------------------------------------------------
+# Link previews (Telegram, Viber, WhatsApp, Facebook, X…): cover image is
+# public/og-cover.png, made from tools/og/cover.html (1200×630).
+SITE = 'https://ngondro-reader.netlify.app/'
+DESC = 'Основоположні практики в традиції Дрікунґ Каґ’ю: тексти, лічильник і практика. Особистий читач.'
+share_tags = '\n'.join([
+    f'<meta name="description" content="{DESC}" />',
+    f'<link rel="canonical" href="{SITE}" />',
+    '<meta property="og:type" content="website" />',
+    '<meta property="og:site_name" content="Ньондро" />',
+    '<meta property="og:locale" content="uk_UA" />',
+    f'<meta property="og:url" content="{SITE}" />',
+    '<meta property="og:title" content="Ньондро — основоположні практики" />',
+    f'<meta property="og:description" content="{DESC}" />',
+    f'<meta property="og:image" content="{SITE}og-cover.png" />',
+    '<meta property="og:image:type" content="image/png" />',
+    '<meta property="og:image:width" content="1200" />',
+    '<meta property="og:image:height" content="630" />',
+    '<meta property="og:image:alt" content="Ньондро — основоположні практики в традиції Дрікунґ Каґ’ю" />',
+    '<meta name="twitter:card" content="summary_large_image" />',
+    '<meta name="twitter:title" content="Ньондро — основоположні практики" />',
+    f'<meta name="twitter:description" content="{DESC}" />',
+    f'<meta name="twitter:image" content="{SITE}og-cover.png" />',
+])
+idx = replace_once(idx, '<title>Ньондро</title>', '<title>Ньондро</title>\n    ' + share_tags.replace('\n', '\n    '), 'share tags')
 idx = replace_once(idx, 'assets/index-rJMPRxuM.js', js_name, 'index js')
 idx = replace_once(idx, 'assets/index-BkesdbSv.css', css_name, 'index css')
 idx = replace_once(
