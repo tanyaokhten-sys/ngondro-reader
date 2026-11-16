@@ -106,6 +106,7 @@ function __NgCounter({ id }) {
   const [val, setVal] = X.useState("");
   const [flash, setFlash] = X.useState(null);  // { text, entryId, undoable }
   const [menu, setMenu] = X.useState(false);
+  __ngUseEditing("counter-card", mode !== "none"); // Почати практику waits while editing
   const name = Nr.get(id).short;
   const log = c.log || [];
   const pct = c.target > 0 ? Math.min(100, (c.total / c.target) * 100) : 0;
@@ -239,6 +240,7 @@ function __NgHistory({ id, onClose }) {
   const [ask, setAsk] = X.useState(null);      // entry id awaiting undo confirmation
   const [done, setDone] = X.useState(null);
   const ref = X.useRef(null);
+  __ngUseEditing("counter-history", step === "fix" || step === "fixConfirm" || ask !== null);
   const n = __ngNum(val);
   const entries = (c.log || []).slice(-30).reverse();
   const validFix = n !== null && n !== c.total && n <= 100000000;
@@ -367,6 +369,7 @@ function __NgWeekLine({ id, c }) {
 function __NgWeeklyGoalPanel({ id, c, onBack, onClose }) {
   const [custom, setCustom] = X.useState(false);
   const [val, setVal] = X.useState("");
+  __ngUseEditing("counter-weekly-goal", custom);
   const n = __ngNum(val);
   const g = c.weeklyGoal || null;
   const presets = [108, 500, 1000];

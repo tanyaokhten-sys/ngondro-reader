@@ -8,6 +8,7 @@ top of them (so patches never stack on already-patched output):
 
   * home screen scrolls on small phones (CSS)
   * Google sign-in + cross-device sync + migration (tools/account-client.js)
+  * reading flow (Вступні → selected practice → Завершальні) and the start button (tools/nav-client.js)
   * counter card with preview, correction, undo and optional weekly goals (tools/counter-client.js)
   * Supabase client loaded from /vendor (works offline via the service worker)
 
@@ -89,6 +90,8 @@ css += (
     '.hist-what{font-size:16px;font-variant-numeric:tabular-nums}.hist-what.adj{color:var(--accent-ink)}'
     '.hist-when{font-size:12px;color:var(--muted)}'
     '.hist-note{margin:0;font-size:13px;line-height:1.45;color:var(--muted)}'
+    '.start[aria-disabled=true]{opacity:.38;cursor:not-allowed;box-shadow:none}'
+    '.start[aria-disabled=true] .b{opacity:1}'
     '.counter-week{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--muted);margin-top:-4px}'
     '.bar.bar-week{height:2px;background:var(--paper-3)}.bar.bar-week>div{height:2px;background:var(--muted);opacity:.6}'
     '.hist-goal{padding:2px 0}.hist-goal>span:first-child{gap:2px;font-size:15px}'
@@ -103,7 +106,7 @@ css += (
 
 
 # --- JS --------------------------------------------------------------------
-clients = read(os.path.join(ROOT, 'tools/account-client.js')) + '\n' + read(os.path.join(ROOT, 'tools/counter-client.js'))
+clients = '\n'.join(read(os.path.join(ROOT, f)) for f in ('tools/account-client.js', 'tools/nav-client.js', 'tools/counter-client.js'))
 
 # Replace the compiled counter card (Kf) with tools/counter-client.js, which
 # records each action (add / correction / undo / goal) explicitly.
@@ -111,6 +114,23 @@ kf_start = js.index('function Kf({id:p}){')
 kf_end = js.index('const Yf=', kf_start)
 assert js.count('function Kf({id:p}){') == 1
 js = js[:kf_start] + clients + '\nfunction Kf({id:p}){return o.jsx(__NgCounter,{id:p})}' + js[kf_end:]
+
+# Reader Previous/Next: Вступні → selected practice → Завершальні (tools/nav-client.js).
+js = replace_once(
+    js,
+    'je=Fe.chapters.findIndex(E=>E.id===p.id),U=Fe.chapters[je-1],ne=Fe.chapters[je+1]',
+    'je=Fe.chapters.findIndex(E=>E.id===p.id),[U,ne]=__ngChNav(p.id,_.currentPractice)',
+    'chapter navigation')
+
+# Home: "Почати практику" is disabled while the counter is being edited.
+js = replace_once(
+    js,
+    'o.jsxs("a",{className:"start",href:Ce({name:"practice",passage:V}),onClick:()=>{z(ae=>({...ae,passage:V})),ac()},'
+    'children:[o.jsx("span",{className:"a",children:"Почати практику"}),o.jsxs("span",{className:"b",children:["Поклони · ",'
+    'V==="refuge"?"Прихисток":"Бодгічіта"," · ",C.lang==="uk"?"українською":"транслітерація"]})]})',
+    'o.jsx(__NgStart,{href:Ce({name:"practice",passage:V}),onStart:()=>{z(ae=>({...ae,passage:V})),ac()},'
+    'passageLabel:V==="refuge"?"Прихисток":"Бодгічіта",lang:C.lang==="uk"?"українською":"транслітерація"})',
+    'start button')
 
 # Reading settings: only two line spacings (Щільний, Просторий) and two themes
 # (Світла, Темна). Saved "Звичайний"/"Тепла" choices move to the nearest
